@@ -67,7 +67,7 @@ class MainActivity : Activity(), NetworkController.Listener {
             gravity = Gravity.CENTER
         }
 
-        val hint = TextView(this).apply {
+        val helpText = TextView(this).apply {
             text = "IP کامپیوتر را وارد کن\nبرنامه ویندوز آدرس را نشان می‌دهد"
             textSize = 16f
             setTextColor(Color.LTGRAY)
@@ -76,10 +76,10 @@ class MainActivity : Activity(), NetworkController.Listener {
         }
 
         val ipInput = EditText(this).apply {
-            hint = "مثلاً 192.168.1.20"
+            setHint("مثلاً 192.168.1.20")
             setHintTextColor(Color.GRAY)
             setTextColor(Color.WHITE)
-            singleLine = true
+            setSingleLine(true)
             gravity = Gravity.CENTER
         }
 
@@ -98,7 +98,7 @@ class MainActivity : Activity(), NetworkController.Listener {
         }
 
         layout.addView(title)
-        layout.addView(hint)
+        layout.addView(helpText)
         layout.addView(ipInput)
         layout.addView(connect)
         setContentView(layout)
