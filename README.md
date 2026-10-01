@@ -1,22 +1,45 @@
 # LemPad / لم‌پد
 
-LemPad turns an Android phone into a touchpad + voice keyboard for a Windows PC.
+لم‌پد گوشی اندرویدی را به **تاچ‌پد، ماوس و کیبورد صوتی فارسی برای ویندوز** تبدیل می‌کند.
 
-## MVP
-- Full-screen dark touchpad mode
-- One-finger mouse movement
-- Tap = left click
-- Two-finger vertical gesture = scroll
-- Long press / drag support
-- Voice dictation in Persian
-- Voice commands such as «اینتر»، «بک‌اسپیس»، «تب»، «اسکیپ»
-- Windows companion over local Wi‑Fi
-- GitHub Actions build for Android APK and Windows companion
+## قابلیت‌های نسخه فعلی
 
-## Repository
-- `android/` Android app (Kotlin)
-- `windows/` Windows companion (.NET)
-- `.github/workflows/` CI builds
+- صفحه کنترل کاملاً مشکی و تمام‌صفحه
+- حرکت یک انگشت = حرکت نشانگر ماوس
+- یک ضربه = کلیک چپ
+- ضربه با دو انگشت = کلیک راست
+- حرکت دو انگشت = اسکرول
+- نگه‌داشتن و کشیدن = Drag
+- نگه‌داشتن سه انگشت = خروج از حالت تاچ‌پد و برگشت به تنظیمات
+- اتصال گوشی و ویندوز روی Wi‑Fi محلی
+- تشخیص خودکار فیلد قابل تایپ در ویندوز
+- روشن و خاموش شدن دیکته صوتی هنگام ورود/خروج از فیلد تایپ
+- دیکته فارسی
+- فرمان صوتی: اینتر، بک‌اسپیس، تب، اسکیپ، کپی، پیست و انتخاب همه
+- تایپ مستقیم متن فارسی در ویندوز با Unicode
 
-## Status
-Early MVP under active development.
+## ساختار پروژه
+
+- `android/` اپ اندروید با Kotlin
+- `windows/LemPad.Companion/` برنامه همراه ویندوز با .NET 8
+- `.github/workflows/build.yml` بیلد خودکار APK و فایل اجرایی ویندوز
+
+## روش استفاده
+
+1. برنامه **LemPad Companion** را روی ویندوز اجرا کنید.
+2. گوشی و کامپیوتر را به یک Wi‑Fi وصل کنید.
+3. IP نمایش‌داده‌شده در Companion را داخل اپ لم‌پد وارد کنید.
+4. اگر Windows Firewall پرسید، دسترسی شبکه Private را Allow کنید.
+5. وارد حالت کنترل شوید و گوشی را کنار دست بگذارید.
+6. روی کادر تایپ در کامپیوتر کلیک کنید؛ دیکته صوتی روی گوشی فعال می‌شود.
+
+## خروجی‌های CI
+
+GitHub Actions در هر تغییر روی `main` دو Artifact می‌سازد:
+
+- **LemPad-APK** → فایل `LemPad.apk`
+- **LemPad-Windows** → برنامه همراه ویندوز
+
+## وضعیت
+
+نسخه اولیه قابل تست در حال بیلد و QA است.
