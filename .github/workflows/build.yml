@@ -47,30 +47,15 @@ jobs:
           profile: pixel_2
           disable-animations: true
           script: |
-            set -e
-            APK="android/build/outputs/apk/debug/android-debug.apk"
-            adb install -r "$APK"
+            adb install -r android/build/outputs/apk/debug/android-debug.apk
             adb logcat -c
             adb shell am force-stop app.lampad.remote
             adb shell monkey -p app.lampad.remote -c android.intent.category.LAUNCHER 1
             sleep 6
             adb logcat -d > android-launch-logcat.txt
-            PID="$(adb shell pidof app.lampad.remote | tr -d '\r')"
-            if [ -z "$PID" ]; then
-              echo "LemPad process is not alive after launch."
-              cat android-launch-logcat.txt
-              exit 1
-            fi
-            if ! adb shell dumpsys activity activities | grep -q "app.lampad.remote/.MainActivity"; then
-              echo "MainActivity is not resumed after launch."
-              cat android-launch-logcat.txt
-              exit 1
-            fi
-            if grep -E "FATAL EXCEPTION: main|Process: app\.lampad\.remote" android-launch-logcat.txt; then
-              echo "Fatal crash found in logcat."
-              cat android-launch-logcat.txt
-              exit 1
-            fi
+            adb shell pidof app.lampad.remote | grep -q .
+            adb shell dumpsys activity activities | grep -q "app.lampad.remote/.MainActivity"
+            ! grep -Eq "FATAL EXCEPTION: main|Process: app\.lampad\.remote" android-launch-logcat.txt
             adb exec-out screencap -p > lampad-launch.png
 
       - name: Prepare APK
