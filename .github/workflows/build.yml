@@ -1,0 +1,71 @@
+name: Build LemPad
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    name: Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Build debug APK
+        run: gradle :android:assembleDebug --stacktrace
+
+      - name: Prepare APK
+        run: cp android/build/outputs/apk/debug/android-debug.apk LemPad.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: LemPad-APK
+          path: LemPad.apk
+          if-no-files-found: error
+
+  windows:
+    name: Windows Companion
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Publish companion
+        shell: pwsh
+        run: >
+          dotnet publish windows/LemPad.Companion/LemPad.Companion.csproj
+          -c Release
+          -r win-x64
+          --self-contained true
+          /p:PublishSingleFile=true
+          /p:IncludeNativeLibrariesForSelfExtract=true
+          -o publish/windows
+
+      - name: Upload companion
+        uses: actions/upload-artifact@v4
+        with:
+          name: LemPad-Windows
+          path: publish/windows
+          if-no-files-found: error
