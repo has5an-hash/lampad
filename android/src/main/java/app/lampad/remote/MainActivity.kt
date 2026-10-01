@@ -9,20 +9,20 @@ import android.graphics.Color
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
-import android.provider.Settings
 import android.util.Base64
 import android.view.Gravity
+import android.view.HapticFeedbackConstants
 import android.view.View
-import android.view.WindowInsets
-import android.view.WindowInsetsController
 import android.view.WindowManager
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 
 class MainActivity : Activity(), NetworkController.Listener {
 
@@ -34,26 +34,33 @@ class MainActivity : Activity(), NetworkController.Listener {
     private var previousInterruptionFilter: Int? = null
     private val mainHandler = Handler(Looper.getMainLooper())
 
+    private val restartListeningRunnable = Runnable {
+        if (dictationEnabled) startListening()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        hideSystemUi()
 
-        val savedHost = getSharedPreferences("lampad", MODE_PRIVATE)
-            .getString("pc_host", "")
-            .orEmpty()
+        try {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            @Suppress("DEPRECATION")
+            run {
+                window.statusBarColor = Color.BLACK
+                window.navigationBarColor = Color.BLACK
+            }
 
-        network = NetworkController(savedHost)
-        network.start(this)
+            val savedHost = getSharedPreferences("lampad", MODE_PRIVATE)
+                .getString("pc_host", "")
+                .orEmpty()
 
-        if (savedHost.isBlank()) {
-            showSetup()
-        } else {
-            showTouchpad()
+            network = NetworkController(savedHost)
+            showSetup(savedHost)
+        } catch (t: Throwable) {
+            showRecoveryScreen(t)
         }
     }
 
-    private fun showSetup() {
+    private fun showSetup(prefillHost: String = getSavedHost()) {
         leaveFocusMode()
         dictationEnabled = false
         stopListening()
@@ -73,7 +80,7 @@ class MainActivity : Activity(), NetworkController.Listener {
         }
 
         val helpText = TextView(this).apply {
-            text = "IP کامپیوتر را وارد کن\nبرنامه ویندوز آدرس را نشان می‌دهد"
+            text = "گوشی و کامپیوتر را به یک Wi‑Fi وصل کن.\nIP نمایش‌داده‌شده در برنامه ویندوز را اینجا وارد کن."
             textSize = 16f
             setTextColor(Color.LTGRAY)
             gravity = Gravity.CENTER
@@ -81,38 +88,62 @@ class MainActivity : Activity(), NetworkController.Listener {
         }
 
         val ipInput = EditText(this).apply {
-            setHint("مثلاً 192.168.1.20")
+            hint = "مثلاً 192.168.1.20"
             setHintTextColor(Color.GRAY)
             setTextColor(Color.WHITE)
             setSingleLine(true)
             gravity = Gravity.CENTER
+            setText(prefillHost)
+            selectAll()
         }
 
         val dndButton = Button(this).apply {
             text = if (hasDndAccess()) {
-                "حالت بدون اعلان: فعال"
+                "جلوگیری از اعلان‌ها: فعال"
             } else {
                 "فعال‌سازی جلوگیری از اعلان‌ها"
             }
             setOnClickListener {
                 if (!hasDndAccess()) {
-                    startActivity(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS))
+                    try {
+                        startActivity(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS))
+                    } catch (_: Throwable) {
+                        Toast.makeText(
+                            this@MainActivity,
+                            "تنظیمات اعلان در این گوشی در دسترس نیست.",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
                 }
             }
         }
 
         val connect = Button(this).apply {
-            text = "اتصال و شروع"
+            text = "شروع کنترل"
             setOnClickListener {
                 val host = ipInput.text.toString().trim()
-                if (host.isNotBlank()) {
-                    getSharedPreferences("lampad", MODE_PRIVATE)
-                        .edit().putString("pc_host", host).apply()
-                    network.setHost(host)
-                    network.send("HELLO")
-                    showTouchpad()
+                if (host.isBlank()) {
+                    ipInput.error = "IP کامپیوتر را وارد کن"
+                    return@setOnClickListener
                 }
+
+                getSharedPreferences("lampad", MODE_PRIVATE)
+                    .edit()
+                    .putString("pc_host", host)
+                    .apply()
+
+                network.setHost(host)
+                network.start(this@MainActivity)
+                showTouchpad()
             }
+        }
+
+        val note = TextView(this).apply {
+            text = "برای برگشت از حالت تاچ‌پد، سه انگشت را حدود یک ثانیه نگه دار."
+            textSize = 13f
+            setTextColor(Color.GRAY)
+            gravity = Gravity.CENTER
+            setPadding(0, 26, 0, 0)
         }
 
         layout.addView(title)
@@ -120,29 +151,93 @@ class MainActivity : Activity(), NetworkController.Listener {
         layout.addView(ipInput)
         layout.addView(dndButton)
         layout.addView(connect)
+        layout.addView(note)
         setContentView(layout)
     }
+
+    private fun showRecoveryScreen(error: Throwable) {
+        try {
+            val layout = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                setPadding(48, 48, 48, 48)
+                setBackgroundColor(Color.rgb(18, 18, 18))
+            }
+
+            val title = TextView(this).apply {
+                text = "لم‌پد با خطای شروع روبه‌رو شد"
+                textSize = 22f
+                setTextColor(Color.WHITE)
+                gravity = Gravity.CENTER
+            }
+
+            val details = TextView(this).apply {
+                text = error.javaClass.simpleName + ": " + (error.message ?: "خطای ناشناخته")
+                textSize = 13f
+                setTextColor(Color.LTGRAY)
+                gravity = Gravity.CENTER
+                setPadding(0, 20, 0, 20)
+            }
+
+            val retry = Button(this).apply {
+                text = "تلاش دوباره"
+                setOnClickListener {
+                    recreate()
+                }
+            }
+
+            layout.addView(title)
+            layout.addView(details)
+            layout.addView(retry)
+            setContentView(layout)
+        } catch (_: Throwable) {
+            finish()
+        }
+    }
+
+    private fun getSavedHost(): String =
+        getSharedPreferences("lampad", MODE_PRIVATE)
+            .getString("pc_host", "")
+            .orEmpty()
 
     private fun showTouchpad() {
         controlModeActive = true
         hideSystemUi()
-        val touchpad = TouchpadView(this, network) { showSetup() }
+
+        val touchpad = TouchpadView(this, network) {
+            showSetup()
+        }
+
         setContentView(touchpad)
         enterFocusMode()
     }
 
     private fun hasDndAccess(): Boolean {
-        val manager = getSystemService(NotificationManager::class.java)
-        return manager?.isNotificationPolicyAccessGranted == true
+        return try {
+            val manager = getSystemService(NotificationManager::class.java)
+            manager?.isNotificationPolicyAccessGranted == true
+        } catch (_: Throwable) {
+            false
+        }
     }
 
     private fun enterFocusMode() {
-        val manager = getSystemService(NotificationManager::class.java)
+        val manager = try {
+            getSystemService(NotificationManager::class.java)
+        } catch (_: Throwable) {
+            null
+        }
+
         if (manager?.isNotificationPolicyAccessGranted == true) {
-            previousInterruptionFilter = manager.currentInterruptionFilter
+            previousInterruptionFilter = try {
+                manager.currentInterruptionFilter
+            } catch (_: Throwable) {
+                null
+            }
+
             try {
                 manager.setInterruptionFilter(NotificationManager.INTERRUPTION_FILTER_ALARMS)
-            } catch (_: Exception) {
+            } catch (_: Throwable) {
             }
         }
 
@@ -150,9 +245,9 @@ class MainActivity : Activity(), NetworkController.Listener {
             if (!controlModeActive) return@postDelayed
             try {
                 startLockTask()
-            } catch (_: Exception) {
+            } catch (_: Throwable) {
             }
-        }, 250)
+        }, 350)
     }
 
     private fun leaveFocusMode() {
@@ -161,21 +256,20 @@ class MainActivity : Activity(), NetworkController.Listener {
 
         try {
             stopLockTask()
-        } catch (_: Exception) {
+        } catch (_: Throwable) {
         }
 
-        val manager = getSystemService(NotificationManager::class.java)
         val previous = previousInterruptionFilter
-        if (
-            previous != null &&
-            manager?.isNotificationPolicyAccessGranted == true
-        ) {
+        if (previous != null && hasDndAccess()) {
             try {
-                manager.setInterruptionFilter(previous)
-            } catch (_: Exception) {
+                getSystemService(NotificationManager::class.java)
+                    ?.setInterruptionFilter(previous)
+            } catch (_: Throwable) {
             }
         }
+
         previousInterruptionFilter = null
+        showSystemUi()
     }
 
     override fun onCommand(command: String) {
@@ -188,6 +282,13 @@ class MainActivity : Activity(), NetworkController.Listener {
     }
 
     override fun onConnectionError(message: String) {
+        runOnUiThread {
+            Toast.makeText(
+                this,
+                "اتصال لم‌پد: " + message,
+                Toast.LENGTH_SHORT
+            ).show()
+        }
     }
 
     private fun enableDictation() {
@@ -195,7 +296,7 @@ class MainActivity : Activity(), NetworkController.Listener {
         dictationEnabled = true
 
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 2001)
+            requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQUEST_AUDIO)
             return
         }
 
@@ -207,51 +308,73 @@ class MainActivity : Activity(), NetworkController.Listener {
         stopListening()
     }
 
-    private fun ensureRecognizer() {
-        if (speechRecognizer != null) return
+    private fun ensureRecognizer(): Boolean {
+        if (speechRecognizer != null) return true
 
-        speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this).also { recognizer ->
-            recognizer.setRecognitionListener(object : RecognitionListener {
-                override fun onReadyForSpeech(params: Bundle?) {
-                    listening = true
-                }
+        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
+            Toast.makeText(
+                this,
+                "سرویس تشخیص گفتار روی این گوشی در دسترس نیست.",
+                Toast.LENGTH_LONG
+            ).show()
+            dictationEnabled = false
+            return false
+        }
 
-                override fun onBeginningOfSpeech() {}
-                override fun onRmsChanged(rmsdB: Float) {}
-                override fun onBufferReceived(buffer: ByteArray?) {}
-
-                override fun onEndOfSpeech() {
-                    listening = false
-                }
-
-                override fun onError(error: Int) {
-                    listening = false
-                    restartListeningSoon()
-                }
-
-                override fun onResults(results: Bundle?) {
-                    listening = false
-                    val text = results
-                        ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                        ?.firstOrNull()
-                        ?.trim()
-
-                    if (!text.isNullOrBlank()) {
-                        handleSpeech(text)
+        return try {
+            speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this).also { recognizer ->
+                recognizer.setRecognitionListener(object : RecognitionListener {
+                    override fun onReadyForSpeech(params: Bundle?) {
+                        listening = true
                     }
 
-                    restartListeningSoon()
-                }
+                    override fun onBeginningOfSpeech() {}
+                    override fun onRmsChanged(rmsdB: Float) {}
+                    override fun onBufferReceived(buffer: ByteArray?) {}
 
-                override fun onPartialResults(partialResults: Bundle?) {}
-                override fun onEvent(eventType: Int, params: Bundle?) {}
-            })
+                    override fun onEndOfSpeech() {
+                        listening = false
+                    }
+
+                    override fun onError(error: Int) {
+                        listening = false
+                        restartListeningSoon()
+                    }
+
+                    override fun onResults(results: Bundle?) {
+                        listening = false
+
+                        val text = results
+                            ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                            ?.firstOrNull()
+                            ?.trim()
+
+                        if (!text.isNullOrBlank()) {
+                            handleSpeech(text)
+                        }
+
+                        restartListeningSoon()
+                    }
+
+                    override fun onPartialResults(partialResults: Bundle?) {}
+                    override fun onEvent(eventType: Int, params: Bundle?) {}
+                })
+            }
+            true
+        } catch (t: Throwable) {
+            dictationEnabled = false
+            Toast.makeText(
+                this,
+                "تشخیص گفتار اجرا نشد: " + t.javaClass.simpleName,
+                Toast.LENGTH_LONG
+            ).show()
+            false
         }
     }
 
     private fun startListening() {
         if (!dictationEnabled || listening) return
-        ensureRecognizer()
+        if (!ensureRecognizer()) return
 
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(
@@ -265,21 +388,24 @@ class MainActivity : Activity(), NetworkController.Listener {
 
         try {
             speechRecognizer?.startListening(intent)
-        } catch (_: Exception) {
+        } catch (_: Throwable) {
+            listening = false
             restartListeningSoon()
         }
     }
 
     private fun restartListeningSoon() {
-        if (!dictationEnabled) return
-        mainHandler.postDelayed({ startListening() }, 450)
+        mainHandler.removeCallbacks(restartListeningRunnable)
+        if (dictationEnabled) {
+            mainHandler.postDelayed(restartListeningRunnable, 650)
+        }
     }
 
     private fun stopListening() {
-        mainHandler.removeCallbacksAndMessages(null)
+        mainHandler.removeCallbacks(restartListeningRunnable)
         try {
-            speechRecognizer?.stopListening()
-        } catch (_: Exception) {
+            speechRecognizer?.cancel()
+        } catch (_: Throwable) {
         }
         listening = false
     }
@@ -305,7 +431,7 @@ class MainActivity : Activity(), NetworkController.Listener {
                     text.toByteArray(Charsets.UTF_8),
                     Base64.NO_WRAP
                 )
-                network.send("TEXT|$payload")
+                network.send("TEXT|" + payload)
             }
         }
     }
@@ -317,39 +443,75 @@ class MainActivity : Activity(), NetworkController.Listener {
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
 
-        if (
-            requestCode == 2001 &&
-            grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED
-        ) {
+        if (requestCode != REQUEST_AUDIO) return
+
+        if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
             startListening()
+        } else {
+            dictationEnabled = false
+            Toast.makeText(
+                this,
+                "برای تایپ صوتی باید دسترسی میکروفون را بدهی.",
+                Toast.LENGTH_LONG
+            ).show()
         }
     }
 
+    @Suppress("DEPRECATION")
     private fun hideSystemUi() {
-        if (android.os.Build.VERSION.SDK_INT >= 30) {
-            window.insetsController?.let {
-                it.hide(
-                    WindowInsets.Type.statusBars() or
-                        WindowInsets.Type.navigationBars()
-                )
-                it.systemBarsBehavior =
-                    WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            }
+        window.decorView.systemUiVisibility =
+            View.SYSTEM_UI_FLAG_FULLSCREEN or
+                View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
+                View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
+                View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
+                View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+    }
+
+    @Suppress("DEPRECATION")
+    private fun showSystemUi() {
+        window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus && controlModeActive) {
+            hideSystemUi()
+        }
+    }
+
+    @Deprecated("Deprecated in Android")
+    override fun onBackPressed() {
+        if (controlModeActive) {
+            showSetup()
         } else {
-            @Suppress("DEPRECATION")
-            window.decorView.systemUiVisibility =
-                View.SYSTEM_UI_FLAG_FULLSCREEN or
-                    View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
-                    View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+            super.onBackPressed()
         }
     }
 
     override fun onDestroy() {
-        leaveFocusMode()
+        try {
+            leaveFocusMode()
+        } catch (_: Throwable) {
+        }
+
         dictationEnabled = false
-        speechRecognizer?.destroy()
+        mainHandler.removeCallbacksAndMessages(null)
+
+        try {
+            speechRecognizer?.destroy()
+        } catch (_: Throwable) {
+        }
         speechRecognizer = null
-        network.close()
+
+        if (::network.isInitialized) {
+            network.close()
+        }
+
         super.onDestroy()
+    }
+
+    companion object {
+        private const val REQUEST_AUDIO = 2001
     }
 }
