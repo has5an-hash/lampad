@@ -2,6 +2,7 @@ package app.lampad.remote
 
 import android.Manifest
 import android.app.Activity
+import android.app.NotificationManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
@@ -11,6 +12,7 @@ import android.os.Looper
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import android.provider.Settings
 import android.util.Base64
 import android.view.Gravity
 import android.view.View
@@ -28,6 +30,8 @@ class MainActivity : Activity(), NetworkController.Listener {
     private var speechRecognizer: SpeechRecognizer? = null
     private var dictationEnabled = false
     private var listening = false
+    private var controlModeActive = false
+    private var previousInterruptionFilter: Int? = null
     private val mainHandler = Handler(Looper.getMainLooper())
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -50,6 +54,7 @@ class MainActivity : Activity(), NetworkController.Listener {
     }
 
     private fun showSetup() {
+        leaveFocusMode()
         dictationEnabled = false
         stopListening()
 
@@ -83,6 +88,19 @@ class MainActivity : Activity(), NetworkController.Listener {
             gravity = Gravity.CENTER
         }
 
+        val dndButton = Button(this).apply {
+            text = if (hasDndAccess()) {
+                "حالت بدون اعلان: فعال"
+            } else {
+                "فعال‌سازی جلوگیری از اعلان‌ها"
+            }
+            setOnClickListener {
+                if (!hasDndAccess()) {
+                    startActivity(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS))
+                }
+            }
+        }
+
         val connect = Button(this).apply {
             text = "اتصال و شروع"
             setOnClickListener {
@@ -100,14 +118,64 @@ class MainActivity : Activity(), NetworkController.Listener {
         layout.addView(title)
         layout.addView(helpText)
         layout.addView(ipInput)
+        layout.addView(dndButton)
         layout.addView(connect)
         setContentView(layout)
     }
 
     private fun showTouchpad() {
+        controlModeActive = true
         hideSystemUi()
         val touchpad = TouchpadView(this, network) { showSetup() }
         setContentView(touchpad)
+        enterFocusMode()
+    }
+
+    private fun hasDndAccess(): Boolean {
+        val manager = getSystemService(NotificationManager::class.java)
+        return manager?.isNotificationPolicyAccessGranted == true
+    }
+
+    private fun enterFocusMode() {
+        val manager = getSystemService(NotificationManager::class.java)
+        if (manager?.isNotificationPolicyAccessGranted == true) {
+            previousInterruptionFilter = manager.currentInterruptionFilter
+            try {
+                manager.setInterruptionFilter(NotificationManager.INTERRUPTION_FILTER_ALARMS)
+            } catch (_: Exception) {
+            }
+        }
+
+        mainHandler.postDelayed({
+            if (!controlModeActive) return@postDelayed
+            try {
+                startLockTask()
+            } catch (_: Exception) {
+            }
+        }, 250)
+    }
+
+    private fun leaveFocusMode() {
+        if (!controlModeActive) return
+        controlModeActive = false
+
+        try {
+            stopLockTask()
+        } catch (_: Exception) {
+        }
+
+        val manager = getSystemService(NotificationManager::class.java)
+        val previous = previousInterruptionFilter
+        if (
+            previous != null &&
+            manager?.isNotificationPolicyAccessGranted == true
+        ) {
+            try {
+                manager.setInterruptionFilter(previous)
+            } catch (_: Exception) {
+            }
+        }
+        previousInterruptionFilter = null
     }
 
     override fun onCommand(command: String) {
@@ -277,6 +345,7 @@ class MainActivity : Activity(), NetworkController.Listener {
     }
 
     override fun onDestroy() {
+        leaveFocusMode()
         dictationEnabled = false
         speechRecognizer?.destroy()
         speechRecognizer = null
