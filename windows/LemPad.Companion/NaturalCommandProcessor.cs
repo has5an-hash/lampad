@@ -60,14 +60,14 @@ internal sealed class NaturalCommandProcessor
         var modifier = TryModifierCommand(text);
         if (modifier.Handled) return modifier;
 
-        var key = TryKeyboardCommand(text);
-        if (key.Handled) return key;
-
         var browser = TryBrowserCommand(text);
         if (browser.Handled) return browser;
 
         var windows = TryWindowCommand(text);
         if (windows.Handled) return windows;
+
+        var key = TryKeyboardCommand(text);
+        if (key.Handled) return key;
 
         var files = TryFileExplorerCommand(text);
         if (files.Handled) return files;
