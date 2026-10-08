@@ -17,30 +17,23 @@ internal static class InputInjector
     private const uint KeyEventKeyUp = 0x0002;
     private const uint KeyEventUnicode = 0x0004;
 
-    private const ushort VkControl = 0x11;
-    private const ushort VkShift = 0x10;
-    private const ushort VkMenu = 0x12;
-    private const ushort VkLWin = 0x5B;
-    private const ushort VkReturn = 0x0D;
-    private const ushort VkBack = 0x08;
-    private const ushort VkTab = 0x09;
-    private const ushort VkEscape = 0x1B;
-    private const ushort VkDelete = 0x2E;
-    private const ushort VkLeft = 0x25;
-    private const ushort VkUp = 0x26;
-    private const ushort VkRight = 0x27;
-    private const ushort VkDown = 0x28;
+    private static readonly HashSet<ushort> HeldKeys = new();
 
-    public static void Move(int dx, int dy) =>
-        SendMouse(dx, dy, 0, MouseMove);
+    public static void Move(int dx, int dy) => SendMouse(dx, dy, 0, MouseMove);
 
-    public static void Scroll(int delta) =>
-        SendMouse(0, 0, delta, MouseWheel);
+    public static void Scroll(int delta) => SendMouse(0, 0, delta, MouseWheel);
 
     public static void ClickLeft()
     {
         SendMouse(0, 0, 0, MouseLeftDown);
         SendMouse(0, 0, 0, MouseLeftUp);
+    }
+
+    public static void DoubleClickLeft()
+    {
+        ClickLeft();
+        Thread.Sleep(55);
+        ClickLeft();
     }
 
     public static void ClickRight()
@@ -50,31 +43,61 @@ internal static class InputInjector
     }
 
     public static void MouseDown(string button) =>
-        SendMouse(0, 0, 0, button.Equals("RIGHT", StringComparison.OrdinalIgnoreCase) ? MouseRightDown : MouseLeftDown);
+        SendMouse(0, 0, 0,
+            button.Equals("RIGHT", StringComparison.OrdinalIgnoreCase)
+                ? MouseRightDown
+                : MouseLeftDown);
 
     public static void MouseUp(string button) =>
-        SendMouse(0, 0, 0, button.Equals("RIGHT", StringComparison.OrdinalIgnoreCase) ? MouseRightUp : MouseLeftUp);
+        SendMouse(0, 0, 0,
+            button.Equals("RIGHT", StringComparison.OrdinalIgnoreCase)
+                ? MouseRightUp
+                : MouseLeftUp);
 
     public static void PressKey(string keyName)
     {
-        var vk = keyName.ToUpperInvariant() switch
-        {
-            "ENTER" => VkReturn,
-            "BACKSPACE" => VkBack,
-            "TAB" => VkTab,
-            "ESC" or "ESCAPE" => VkEscape,
-            "DELETE" => VkDelete,
-            "LEFT" => VkLeft,
-            "RIGHT" => VkRight,
-            "UP" => VkUp,
-            "DOWN" => VkDown,
-            _ => (ushort)0
-        };
+        var vk = ResolveKey(keyName);
+        if (vk == 0) return;
 
-        if (vk != 0)
+        KeyDownInternal(vk);
+        KeyUpInternal(vk);
+    }
+
+    public static bool HoldKey(string keyName)
+    {
+        var vk = ResolveKey(keyName);
+        if (vk == 0) return false;
+
+        lock (HeldKeys)
         {
-            KeyDown(vk);
-            KeyUp(vk);
+            if (HeldKeys.Add(vk))
+                KeyDownInternal(vk);
+        }
+        return true;
+    }
+
+    public static bool ReleaseKey(string keyName)
+    {
+        var vk = ResolveKey(keyName);
+        if (vk == 0) return false;
+
+        lock (HeldKeys)
+        {
+            if (HeldKeys.Remove(vk))
+                KeyUpInternal(vk);
+            else
+                KeyUpInternal(vk);
+        }
+        return true;
+    }
+
+    public static void ReleaseAllHeldKeys()
+    {
+        lock (HeldKeys)
+        {
+            foreach (var vk in HeldKeys.ToArray())
+                KeyUpInternal(vk);
+            HeldKeys.Clear();
         }
     }
 
@@ -82,35 +105,31 @@ internal static class InputInjector
     {
         if (parts.Count == 0) return;
 
-        var modifiers = new List<ushort>();
+        var temporaryModifiers = new List<ushort>();
         for (var i = 0; i < parts.Count - 1; i++)
         {
-            var mod = parts[i].ToUpperInvariant() switch
+            var mod = ResolveKey(parts[i]);
+            if (mod == 0) continue;
+
+            lock (HeldKeys)
             {
-                "CTRL" or "CONTROL" => VkControl,
-                "SHIFT" => VkShift,
-                "ALT" => VkMenu,
-                "WIN" or "WINDOWS" => VkLWin,
-                _ => (ushort)0
-            };
-            if (mod != 0) modifiers.Add(mod);
+                if (!HeldKeys.Contains(mod))
+                {
+                    KeyDownInternal(mod);
+                    temporaryModifiers.Add(mod);
+                }
+            }
         }
 
-        foreach (var mod in modifiers) KeyDown(mod);
-
-        var last = parts[^1];
-        if (last.Length == 1)
+        var last = ResolveKey(parts[^1]);
+        if (last != 0)
         {
-            var ch = char.ToUpperInvariant(last[0]);
-            KeyDown(ch);
-            KeyUp(ch);
-        }
-        else
-        {
-            PressKey(last);
+            KeyDownInternal(last);
+            KeyUpInternal(last);
         }
 
-        for (var i = modifiers.Count - 1; i >= 0; i--) KeyUp(modifiers[i]);
+        for (var i = temporaryModifiers.Count - 1; i >= 0; i--)
+            KeyUpInternal(temporaryModifiers[i]);
     }
 
     public static void TypeUnicode(string text)
@@ -150,8 +169,56 @@ internal static class InputInjector
                     }
                 }
             };
+
             SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<INPUT>());
         }
+    }
+
+    private static ushort ResolveKey(string keyName)
+    {
+        var key = keyName.Trim().ToUpperInvariant();
+
+        if (key.Length == 1)
+        {
+            var ch = key[0];
+            if (ch is >= 'A' and <= 'Z') return ch;
+            if (ch is >= '0' and <= '9') return ch;
+        }
+
+        return key switch
+        {
+            "CTRL" or "CONTROL" => 0x11,
+            "SHIFT" => 0x10,
+            "ALT" => 0x12,
+            "WIN" or "WINDOWS" => 0x5B,
+            "ENTER" or "RETURN" => 0x0D,
+            "BACKSPACE" => 0x08,
+            "TAB" => 0x09,
+            "ESC" or "ESCAPE" => 0x1B,
+            "SPACE" => 0x20,
+            "DELETE" or "DEL" => 0x2E,
+            "HOME" => 0x24,
+            "END" => 0x23,
+            "PAGEUP" => 0x21,
+            "PAGEDOWN" => 0x22,
+            "LEFT" => 0x25,
+            "UP" => 0x26,
+            "RIGHT" => 0x27,
+            "DOWN" => 0x28,
+            "F1" => 0x70,
+            "F2" => 0x71,
+            "F3" => 0x72,
+            "F4" => 0x73,
+            "F5" => 0x74,
+            "F6" => 0x75,
+            "F7" => 0x76,
+            "F8" => 0x77,
+            "F9" => 0x78,
+            "F10" => 0x79,
+            "F11" => 0x7A,
+            "F12" => 0x7B,
+            _ => 0
+        };
     }
 
     private static void SendMouse(int dx, int dy, int data, uint flags)
@@ -172,32 +239,49 @@ internal static class InputInjector
                 }
             }
         };
+
         SendInput(1, new[] { input }, Marshal.SizeOf<INPUT>());
     }
 
-    private static void KeyDown(ushort vk)
+    private static void KeyDownInternal(ushort vk)
     {
         var input = new INPUT
         {
             type = InputKeyboard,
             U = new InputUnion
             {
-                ki = new KEYBDINPUT { wVk = vk, wScan = 0, dwFlags = 0, time = 0, dwExtraInfo = IntPtr.Zero }
+                ki = new KEYBDINPUT
+                {
+                    wVk = vk,
+                    wScan = 0,
+                    dwFlags = 0,
+                    time = 0,
+                    dwExtraInfo = IntPtr.Zero
+                }
             }
         };
+
         SendInput(1, new[] { input }, Marshal.SizeOf<INPUT>());
     }
 
-    private static void KeyUp(ushort vk)
+    private static void KeyUpInternal(ushort vk)
     {
         var input = new INPUT
         {
             type = InputKeyboard,
             U = new InputUnion
             {
-                ki = new KEYBDINPUT { wVk = vk, wScan = 0, dwFlags = KeyEventKeyUp, time = 0, dwExtraInfo = IntPtr.Zero }
+                ki = new KEYBDINPUT
+                {
+                    wVk = vk,
+                    wScan = 0,
+                    dwFlags = KeyEventKeyUp,
+                    time = 0,
+                    dwExtraInfo = IntPtr.Zero
+                }
             }
         };
+
         SendInput(1, new[] { input }, Marshal.SizeOf<INPUT>());
     }
 
