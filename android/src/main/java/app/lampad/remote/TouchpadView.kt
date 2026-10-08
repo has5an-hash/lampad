@@ -145,8 +145,6 @@ class TouchpadView(
             )
         }
 
-        drawToolbar(canvas)
-
         if (keyboardVisible) {
             canvas.drawRect(keyboardLeft, 0f, width.toFloat(), height.toFloat(), panelPaint)
             keyboardButtons.forEach { button ->
@@ -163,6 +161,8 @@ class TouchpadView(
                 canvas.drawText(button.label, button.rect.centerX(), baseline, keyTextPaint)
             }
         }
+
+        drawToolbar(canvas)
     }
 
     private fun drawToolbar(canvas: Canvas) {
