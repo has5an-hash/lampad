@@ -59,13 +59,13 @@ jobs:
             adb exec-out screencap -p > lampad-launch.png
 
       - name: Prepare APK
-        run: cp android/build/outputs/apk/debug/android-debug.apk LemPad-v0.2.0-debug.apk
+        run: cp android/build/outputs/apk/debug/android-debug.apk LemPad-v0.3.0-debug.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: LemPad-APK
-          path: LemPad-v0.2.0-debug.apk
+          path: LemPad-v0.3.0-debug.apk
           if-no-files-found: error
 
       - name: Upload launch diagnostics
