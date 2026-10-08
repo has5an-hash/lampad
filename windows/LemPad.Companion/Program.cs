@@ -10,7 +10,7 @@ Console.WriteLine("======================================");
 Console.WriteLine("           LemPad Companion");
 Console.WriteLine("======================================");
 Console.WriteLine();
-Console.WriteLine("گوشی و کامپیوتر باید روی یک شبکه Wi‑Fi باشند.");
+Console.WriteLine("گوشی و کامپیوتر باید روی یک شبکه Wi‑Fi یا LAN باشند.");
 Console.WriteLine("در اپ لم‌پد یکی از IPهای زیر را وارد کنید:");
 Console.WriteLine();
 
@@ -22,6 +22,7 @@ foreach (var ip in GetLocalIpv4())
 Console.WriteLine();
 Console.WriteLine($"UDP Port: {LemPadServer.Port}");
 Console.WriteLine("اگر Windows Firewall سؤال کرد، دسترسی Private network را Allow کنید.");
+Console.WriteLine("برای برخی فرمان‌های شبکه، Companion را با Run as administrator اجرا کنید.");
 Console.WriteLine("برای خروج Ctrl+C را بزنید.");
 Console.WriteLine();
 
@@ -39,9 +40,9 @@ focusMonitor.EditableFocusChanged += editable =>
 {
     _ = Task.Run(async () =>
     {
-        if (!server.HasClient) return;
-        await server.SendAsync(editable ? "DICTATION_ON" : "DICTATION_OFF");
-        Console.WriteLine(editable ? "🎙 Voice typing ON" : "🎙 Voice typing OFF");
+        await server.SetEditableFocusAsync(editable);
+        if (server.HasClient)
+            Console.WriteLine(editable ? "🎙 حالت دیکته" : "🎙 حالت فرمان");
     });
 };
 
