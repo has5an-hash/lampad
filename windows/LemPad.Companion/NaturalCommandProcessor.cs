@@ -606,42 +606,43 @@ internal sealed class NaturalCommandProcessor
         return true;
     }
 
-    private static IEnumerable<string> FindMatches(
+    private static IReadOnlyList<string> FindMatches(
         string root,
         string query,
         IReadOnlyList<string> patterns,
         int maxItems)
     {
+        var results = new List<string>();
         if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root))
-            yield break;
+            return results;
 
         var normalizedQuery = NormalizeForMatch(query);
         var count = 0;
 
         foreach (var pattern in patterns)
         {
-            IEnumerator<string>? enumerator = null;
             try
             {
-                enumerator = Directory.EnumerateFiles(root, pattern, SearchOption.AllDirectories).GetEnumerator();
-                while (count < maxItems && enumerator.MoveNext())
+                foreach (var path in Directory.EnumerateFiles(root, pattern, SearchOption.AllDirectories))
                 {
-                    count++;
-                    var path = enumerator.Current;
+                    if (++count > maxItems)
+                        return results;
+
                     var file = NormalizeForMatch(Path.GetFileNameWithoutExtension(path));
                     if (file.Contains(normalizedQuery, StringComparison.OrdinalIgnoreCase) ||
                         normalizedQuery.Contains(file, StringComparison.OrdinalIgnoreCase))
-                        yield return path;
+                    {
+                        results.Add(path);
+                    }
                 }
             }
             catch
             {
-            }
-            finally
-            {
-                enumerator?.Dispose();
+                // Skip protected or inaccessible folders.
             }
         }
+
+        return results;
     }
 
     private static bool LaunchKnown(params string[] names)
